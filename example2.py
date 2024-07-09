@@ -5,7 +5,8 @@
 [x] draw a rect
 [x] move the rect
 [ ] control size with a key
-[ ] draw walls
+[x] set up logging
+[x] draw walls
 [ ] collide with the walls
 """
 
@@ -15,6 +16,7 @@ import sys                                              # sys.exit()
 import pygame
 from pygame import Color, Rect
 import random
+import math
 import logging
 
 def setup_logging(loglevel:str = "DEBUG") -> logging.Logger:
@@ -40,7 +42,6 @@ class Game:
         pygame.font.init()
         self.os_window = pygame.display.set_mode((16*50,9*50), flags=pygame.RESIZABLE)
         pygame.display.set_caption("bob")
-        logger.debug("Hi Kurt")
 
         self.clock = pygame.time.Clock()
 
@@ -70,16 +71,27 @@ class Game:
     def render(self):
         self.os_window.fill(Color(30,30,30)) # Erases window
         pygame.draw.rect(self.os_window, Color(255,0,0), self.rect) # Draw player
+        self.draw_walls()
+        pygame.display.update() # Final render
 
+    def draw_border(self, tile_size, x):
         n = 0
         tiles = []
-        tile_size = 25
-        while n < 10:
-            tiles.append(Rect((0,tile_size*n), (tile_size,tile_size)))
+        window_width = self.os_window.get_size()[0]
+        window_height = self.os_window.get_size()[1]
+        num_tiles = math.ceil(window_height/tile_size)
+        while n < num_tiles:
+            tiles.append(Rect((x,tile_size*n), (tile_size,tile_size)))
             n += 1
         for tile in tiles:
             pygame.draw.rect(self.os_window, Color(0,100,255), tile)
-        pygame.display.update() # Final render
+
+    def draw_walls(self):
+        # Draw East Wall
+        tile_size = 25
+        window_width = self.os_window.get_size()[0]
+        self.draw_border(tile_size, x=window_width - tile_size) # East wall
+        self.draw_border(tile_size, x=0) # West wall
 
     def handle_events(self):
         for event in pygame.event.get():
