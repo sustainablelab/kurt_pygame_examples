@@ -11,6 +11,8 @@
 [ ] collide with the walls
 [x] make a Player class: track position in a debug rect, but draw as a wiggling polygon rect
 [x] make a TileMap class: move wall code to TileMap
+[x] Update Player and TileMap to use game coordinates instead of pixel coordinates
+[x] draw TileMap as boxes during debug
 """
 
 from pathlib import Path
@@ -61,13 +63,16 @@ class TextHud(Text):
         self.game = game
         self.msg += f"FPS: {self.game.clock.get_fps():0.0f}"
         self.msg += f" | dt: {self.game.dt}"
-        self.msg += f" | Window: {self.game.os_window.get_size()}"
+        winsize = self.game.os_window.get_size()
+        self.msg += f"\nWindow: g{self.game.xfm.pg(winsize)} p{winsize}"
+        mpos = pygame.mouse.get_pos()
+        self.msg += f" | Mouse: g{self.game.xfm.pg(mpos)} p{mpos}"
 
 class Player:
     def __init__(self, game):
         self.game = game
-        self.pos = [0,0]                                # Initial position (topleft of self.debug_rect) on the screen
-        self.old_pos = (0,0)                            # Track player's previous position
+        self.pos = [1,1]                                # Initial position (topleft) in game coordinates
+        self.old_pos = self.game.xfm.gp(self.pos)       # Track player's previous position in pixel coordinates
         # self.size = (50,80)                             # Player initial w,h
         self.size = (self.game.tile_size*2,self.game.tile_size*2) # Player initial w,h
         self.debug_rect = Rect(self.pos, self.size)     # White outline, updated in 'animate()'
@@ -83,14 +88,15 @@ class Player:
                     list(self.debug_rect.bottomleft)]
 
     def animate(self) -> None:
-        if self.game.text_hud:
-            self.game.text_hud.msg += f"\nPlayer pos: {self.pos}"
-
         # Update position
-        self.debug_rect = Rect(self.pos, self.size)     # Update the debug rect (white outline)
-        def update_art_position():
-            offset = (self.pos[0] - self.old_pos[0], self.pos[1] - self.old_pos[1])
-            self.old_pos = (self.pos[0], self.pos[1])   # Update old_pos to latest position
+        pos = self.game.xfm.gp(self.pos)                # Xfm player position to pixel coordinates
+        if self.game.text_hud:
+            self.game.text_hud.msg += f"\nPlayer pos: {self.pos} ({pos})"
+
+        self.debug_rect = Rect(pos, self.size)     # Update the debug rect (white outline)
+        def update_art_position(pos):
+            offset = (pos[0] - self.old_pos[0], pos[1] - self.old_pos[1])
+            self.old_pos = (pos[0], pos[1])   # Update old_pos to latest position
             self.art[0][0] += offset[0]
             self.art[1][0] += offset[0]
             self.art[2][0] += offset[0]
@@ -99,7 +105,7 @@ class Player:
             self.art[1][1] += offset[1]
             self.art[2][1] += offset[1]
             self.art[3][1] += offset[1]
-        update_art_position()                           # Update the polygon (red filled)
+        update_art_position(pos)                        # Update the polygon (red filled) to new pos on screen
 
         # Animate the polygon
         self.dt += self.game.dt                         # Add elapsed time
@@ -122,21 +128,55 @@ class TileMap:
         self.make_tiles()
 
     def make_tiles(self) -> None:
+        """Create a dict of tiles in self.tiles.
+
+        Each tile is a dict: {'rect':Rect, 'color':Color}.
+        """
+        self.tiles = {}
+        def make_wall_vertical(color, tile_size, x, num_tiles):
+            """Make a vertical wall at 'x', starting at y=0 and extending down 'num_tiles'."""
+            size = (tile_size, tile_size)               # All tiles are the same size
+            n = 0
+            while n < num_tiles:
+                topleft = (x,tile_size*n)               # Position in pixel coordinates
+                pos = self.game.xfm.pg(topleft)         # Position in game coordinates
+                name = f"({pos[0]},{pos[1]})"           # Name tiles by their position
+                self.tiles[name] = {'rect':Rect(topleft,size), 'color':color}
+                n += 1
+        def make_wall_horizontal(color, tile_size, y, num_tiles):
+            """Make a horizontal wall at 'y', starting at x=0 and extending right 'num_tiles'."""
+            size = (tile_size, tile_size)               # All tiles are the same size
+            n = 0
+            while n < num_tiles:
+                topleft = (tile_size*n,y)               # Position in pixel coordinates
+                pos = self.game.xfm.pg(topleft)         # Position in game coordinates
+                name = f"({pos[0]},{pos[1]})"           # Name tiles by their position
+                self.tiles[name] = {'rect':Rect(topleft,size), 'color':color}
+                n += 1
+        window_width, window_height = self.game.os_window.get_size()
+        tile_size = self.game.tile_size
+        left=0; top=0; right=window_width-tile_size; bottom = window_height-tile_size
+        make_wall_vertical(Color(255,200,0),  tile_size,x=left,  num_tiles=math.ceil(window_height/tile_size))
+        make_wall_vertical(Color(0,200,0),    tile_size,x=right, num_tiles=math.ceil(window_height/tile_size))
+        make_wall_horizontal(Color(0,200,200),tile_size,y=top,   num_tiles=math.ceil(window_width/tile_size))
+        make_wall_horizontal(Color(255,0,200),tile_size,y=bottom,num_tiles=math.ceil(window_width/tile_size))
+
+    def make_tiles_old(self) -> None:
         """Create a list of tiles in self.tiles.
 
         Each tile is a dict: {'rect':Rect, 'color':Color}.
         """
         self.tiles = []
-        def make_wall_vertical(color, tile_size, x, ystart, num_tiles):
-            """Make a vertical wall at 'x', starting at 'ystart' and extending down 'num_tiles'."""
+        def make_wall_vertical(color, tile_size, x, num_tiles):
+            """Make a vertical wall at 'x', starting at y=0 and extending down 'num_tiles'."""
             n = 0
             while n < num_tiles:
                 self.tiles.append({
                     'rect':Rect((x,tile_size*n),(tile_size,tile_size)),
                     'color':color})
                 n += 1
-        def make_wall_horizontal(color, tile_size, y, xstart, num_tiles):
-            """Make a horizontal wall at 'y', starting at 'xstart' and extending right 'num_tiles'."""
+        def make_wall_horizontal(color, tile_size, y, num_tiles):
+            """Make a horizontal wall at 'y', starting at x=0 and extending right 'num_tiles'."""
             n = 0
             while n < num_tiles:
                 self.tiles.append({
@@ -147,14 +187,31 @@ class TileMap:
         tile_size = self.game.tile_size
         num_horiz = math.ceil(window_width/tile_size)
         left=0; top=0; right=window_width-tile_size; bottom = window_height-tile_size
-        make_wall_vertical(Color(255,200,0), tile_size,   x=left,   ystart=top,  num_tiles=math.ceil(window_height/tile_size))
-        make_wall_vertical(Color(0,200,0), tile_size,   x=right,  ystart=top,  num_tiles=math.ceil(window_height/tile_size))
-        make_wall_horizontal(Color(0,200,200), tile_size, y=top,    xstart=left, num_tiles=math.ceil(window_width/tile_size))
-        make_wall_horizontal(Color(255,0,200), tile_size, y=bottom, xstart=left, num_tiles=math.ceil(window_width/tile_size))
+        make_wall_vertical(Color(255,   200, 0),   tile_size, x=left,   num_tiles=math.ceil(window_height/tile_size))
+        make_wall_vertical(Color(0,     200, 0),   tile_size, x=right,  num_tiles=math.ceil(window_height/tile_size))
+        make_wall_horizontal(Color(0,   200, 200), tile_size, y=top,    num_tiles=math.ceil(window_width/tile_size))
+        make_wall_horizontal(Color(255, 0,   200), tile_size, y=bottom, num_tiles=math.ceil(window_width/tile_size))
 
-    def render(self, surf:pygame.Surface) -> None:
+    def render_old(self, surf:pygame.Surface) -> None:
         for tile in self.tiles:
             pygame.draw.rect(surf, tile['color'], tile['rect'])
+
+    def render(self, surf:pygame.Surface) -> None:
+        for name in self.tiles:
+            color = self.tiles[name]['color']
+            rect = self.tiles[name]['rect']
+            width = int(self.game.tile_size/10) if self.game.debug else 0
+            pygame.draw.rect(surf, color, rect, width)
+
+class Xfm:
+    def __init__(self, game):
+        self.game = game
+
+    def pg(self, p:tuple) -> tuple:
+        return (round(p[0]/self.game.tile_size), round(p[1]/self.game.tile_size))
+
+    def gp(self, p:tuple) -> tuple:
+        return (p[0]*self.game.tile_size, p[1]*self.game.tile_size)
 
 class Game:
     def __init__(self):
@@ -164,7 +221,8 @@ class Game:
         pygame.display.set_caption("Collisions")
         self.clock = pygame.time.Clock()
         self.dt = 0
-        self.tile_size = 25
+        self.xfm = Xfm(self)
+        self.tile_size = 50
         self.tile_map = TileMap(self)
         self.player = Player(self)
         self.debug = True
@@ -176,13 +234,13 @@ class Game:
         match event.key:
             case pygame.K_q: sys.exit()
             case pygame.K_w:
-                self.player.pos[1] -= self.tile_size
+                self.player.pos[1] -= 1
             case pygame.K_a:
-                self.player.pos[0] -= self.tile_size
+                self.player.pos[0] -= 1
             case pygame.K_s:
-                self.player.pos[1] += self.tile_size
+                self.player.pos[1] += 1
             case pygame.K_d:
-                self.player.pos[0] += self.tile_size
+                self.player.pos[0] += 1
             case pygame.K_F2:
                 self.debug = not self.debug
 
@@ -203,26 +261,16 @@ class Game:
         if self.debug: self.text_hud.render(self.os_window, Color(255,255,255))
         pygame.display.update() # Final render
 
-    def draw_walls(self):
-        # Draw East Wall
-        tile_size = self.tile_size
-        window_width = self.os_window.get_size()[0]
-        window_height = self.os_window.get_size()[1]
-        self.draw_vertical(Color(255,200,0), tile_size, x=window_width - tile_size) # East wall
-        self.draw_vertical(Color(0,200,0),tile_size, x=0) # West wall
-        self.draw_horizontal(Color(0,200,200),tile_size, y=window_height - tile_size) # South wall
-        self.draw_horizontal(Color(255,0,200),tile_size, y=0, use_hud=True) # North wall
-
     def handle_events(self):
         for event in pygame.event.get():
             match event.type:
                 case pygame.QUIT: sys.exit()
                 case pygame.KEYDOWN: self.KEYDOWN(event)
-
+                case pygame.WINDOWRESIZED:
+                    self.tile_map.make_tiles() # Resize the walls to match the window
 
     def player_update(self) -> None:
         self.player.animate()
-
 
 if __name__ == '__main__':
     logger = setup_logging()
