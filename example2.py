@@ -10,6 +10,7 @@
 [x] draw walls
 [ ] collide with the walls
 [x] make a Player class: track position in a debug rect, but draw as a wiggling polygon rect
+[x] make a TileMap class: move wall code to TileMap
 """
 
 from pathlib import Path
@@ -115,6 +116,46 @@ class Player:
             self.art[3][0] += random.uniform(-w,w)
             self.art[3][1] += random.uniform(-w,w)
 
+class TileMap:
+    def __init__(self, game):
+        self.game = game
+        self.make_tiles()
+
+    def make_tiles(self) -> None:
+        """Create a list of tiles in self.tiles.
+
+        Each tile is a dict: {'rect':Rect, 'color':Color}.
+        """
+        self.tiles = []
+        def make_wall_vertical(color, tile_size, x, ystart, num_tiles):
+            """Make a vertical wall at 'x', starting at 'ystart' and extending down 'num_tiles'."""
+            n = 0
+            while n < num_tiles:
+                self.tiles.append({
+                    'rect':Rect((x,tile_size*n),(tile_size,tile_size)),
+                    'color':color})
+                n += 1
+        def make_wall_horizontal(color, tile_size, y, xstart, num_tiles):
+            """Make a horizontal wall at 'y', starting at 'xstart' and extending right 'num_tiles'."""
+            n = 0
+            while n < num_tiles:
+                self.tiles.append({
+                    'rect':Rect((tile_size*n,y),(tile_size,tile_size)),
+                    'color':color})
+                n += 1
+        window_width, window_height = self.game.os_window.get_size()
+        tile_size = self.game.tile_size
+        num_horiz = math.ceil(window_width/tile_size)
+        left=0; top=0; right=window_width-tile_size; bottom = window_height-tile_size
+        make_wall_vertical(Color(255,200,0), tile_size,   x=left,   ystart=top,  num_tiles=math.ceil(window_height/tile_size))
+        make_wall_vertical(Color(0,200,0), tile_size,   x=right,  ystart=top,  num_tiles=math.ceil(window_height/tile_size))
+        make_wall_horizontal(Color(0,200,200), tile_size, y=top,    xstart=left, num_tiles=math.ceil(window_width/tile_size))
+        make_wall_horizontal(Color(255,0,200), tile_size, y=bottom, xstart=left, num_tiles=math.ceil(window_width/tile_size))
+
+    def render(self, surf:pygame.Surface) -> None:
+        for tile in self.tiles:
+            pygame.draw.rect(surf, tile['color'], tile['rect'])
+
 class Game:
     def __init__(self):
         pygame.init()
@@ -124,6 +165,7 @@ class Game:
         self.clock = pygame.time.Clock()
         self.dt = 0
         self.tile_size = 25
+        self.tile_map = TileMap(self)
         self.player = Player(self)
         self.debug = True
 
@@ -144,7 +186,6 @@ class Game:
             case pygame.K_F2:
                 self.debug = not self.debug
 
-
     def game_loop(self):
         self.handle_events()
         self.text_hud = TextHud(self, size=20) if self.debug else None
@@ -158,33 +199,9 @@ class Game:
         pygame.draw.polygon(self.os_window, Color(255,0,0), self.player.art) # Draw player
         if self.debug:
             pygame.draw.rect(self.os_window, Color(255,255,255), self.player.debug_rect, width=1) # Draw player
-        self.draw_walls()
+        self.tile_map.render(self.os_window)
         if self.debug: self.text_hud.render(self.os_window, Color(255,255,255))
         pygame.display.update() # Final render
-
-    def draw_vertical(self, color:Color, tile_size, x) -> None:
-        n = 0
-        tiles = []
-        window_height = self.os_window.get_size()[1]
-        num_tiles = math.ceil(window_height/tile_size)
-        while n < num_tiles:
-            tiles.append( Rect((x,tile_size*n), (tile_size,tile_size)))
-            n += 1
-        for tile in tiles:
-            pygame.draw.rect(self.os_window, color, tile)
-
-    def draw_horizontal(self, color:Color, tile_size, y, use_hud:bool=False) -> None:
-        n = 0
-        tiles = []
-        window_width = self.os_window.get_size()[0]
-        num_tiles = math.ceil(window_width/tile_size)
-        while n < num_tiles:
-            tiles.append( Rect((tile_size*n, y), (tile_size,tile_size)))
-            n += 1
-        for tile in tiles:
-            pygame.draw.rect(self.os_window, color, tile)
-        if use_hud:
-            if self.debug: self.text_hud.msg += f"\nnum_tiles: {num_tiles}"
 
     def draw_walls(self):
         # Draw East Wall
