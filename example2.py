@@ -9,6 +9,7 @@
 [x] set up logging
 [x] draw walls
 [ ] collide with the walls
+[x] make a Player class: track position in a debug rect, but draw as a wiggling polygon rect
 """
 
 from pathlib import Path
@@ -38,8 +39,8 @@ def shutdown(filename:str):
     pygame.quit()
 
 class Text:
-    def __init__(self) -> None:
-        self.font = pygame.font.SysFont("RobotoMono", 50)
+    def __init__(self, size:int) -> None:
+        self.font = pygame.font.SysFont("RobotoMono", size)
         self.pos = (0,0)
         self.msg = ""
 
@@ -54,50 +55,111 @@ class Text:
             surf.blit(text_surf, (self.pos[0],self.pos[1] + i*line_space))
 
 class TextHud(Text):
-    def __init__(self, game) -> None:
-        super().__init__()
+    def __init__(self, game, size:int=15) -> None:
+        super().__init__(size)
         self.game = game
         self.msg += f"FPS: {self.game.clock.get_fps():0.0f}"
-        self.msg += f"\nWindow: {self.game.os_window.get_size()}"
+        self.msg += f" | dt: {self.game.dt}"
+        self.msg += f" | Window: {self.game.os_window.get_size()}"
+
+class Player:
+    def __init__(self, game):
+        self.game = game
+        self.pos = [0,0]                                # Initial position (topleft of self.debug_rect) on the screen
+        self.old_pos = (0,0)                            # Track player's previous position
+        # self.size = (50,80)                             # Player initial w,h
+        self.size = (self.game.tile_size*2,self.game.tile_size*2) # Player initial w,h
+        self.debug_rect = Rect(self.pos, self.size)     # White outline, updated in 'animate()'
+        self._reset_art()                               # Set art polygon points equal to debug_rect
+        self.dt = 0                                     # Track how much time has elapsed for animations
+        self.period = 50                               # ms: Update animation each period
+        self.wiggle = 3                                 # Animation wiggles each vertex +/- self.wiggle pixels
+
+    def _reset_art(self) -> None:
+        self.art = [list(self.debug_rect.topleft),
+                    list(self.debug_rect.topright),
+                    list(self.debug_rect.bottomright),
+                    list(self.debug_rect.bottomleft)]
+
+    def animate(self) -> None:
+        if self.game.text_hud:
+            self.game.text_hud.msg += f"\nPlayer pos: {self.pos}"
+
+        # Update position
+        self.debug_rect = Rect(self.pos, self.size)     # Update the debug rect (white outline)
+        def update_art_position():
+            offset = (self.pos[0] - self.old_pos[0], self.pos[1] - self.old_pos[1])
+            self.old_pos = (self.pos[0], self.pos[1])   # Update old_pos to latest position
+            self.art[0][0] += offset[0]
+            self.art[1][0] += offset[0]
+            self.art[2][0] += offset[0]
+            self.art[3][0] += offset[0]
+            self.art[0][1] += offset[1]
+            self.art[1][1] += offset[1]
+            self.art[2][1] += offset[1]
+            self.art[3][1] += offset[1]
+        update_art_position()                           # Update the polygon (red filled)
+
+        # Animate the polygon
+        self.dt += self.game.dt                         # Add elapsed time
+        if self.dt >= self.period:                      # Check if it's time to update the animation
+            self.dt = 0                                 # Reset the elapsed time
+            self._reset_art()                           # Reset all vertices to match the debug_rect
+            w = self.wiggle                             # Wiggle amount
+            self.art[0][0] += random.uniform(-w,w)
+            self.art[0][1] += random.uniform(-w,w)
+            self.art[1][0] += random.uniform(-w,w)
+            self.art[1][1] += random.uniform(-w,w)
+            self.art[2][0] += random.uniform(-w,w)
+            self.art[2][1] += random.uniform(-w,w)
+            self.art[3][0] += random.uniform(-w,w)
+            self.art[3][1] += random.uniform(-w,w)
 
 class Game:
     def __init__(self):
         pygame.init()
         pygame.font.init()
         self.os_window = pygame.display.set_mode((16*50,9*50), flags=pygame.RESIZABLE)
-        pygame.display.set_caption("bob")
-
+        pygame.display.set_caption("Collisions")
         self.clock = pygame.time.Clock()
+        self.dt = 0
+        self.tile_size = 25
+        self.player = Player(self)
+        self.debug = True
 
     def run(self):
-        self.pos = [0,0]
         while True: self.game_loop()
 
     def KEYDOWN(self, event):
         match event.key:
             case pygame.K_q: sys.exit()
             case pygame.K_w:
-                self.pos[1] -= 10
+                self.player.pos[1] -= self.tile_size
             case pygame.K_a:
-                self.pos[0] -= 10
+                self.player.pos[0] -= self.tile_size
             case pygame.K_s:
-                self.pos[1] += 10
+                self.player.pos[1] += self.tile_size
             case pygame.K_d:
-                self.pos[0] += 10
+                self.player.pos[0] += self.tile_size
+            case pygame.K_F2:
+                self.debug = not self.debug
 
 
     def game_loop(self):
-        self.text_hud = TextHud(self)
-        self.player_update()
         self.handle_events()
+        self.text_hud = TextHud(self, size=20) if self.debug else None
+        self.player_update()
         self.render()
         self.clock.tick(60)
+        self.dt = self.clock.get_time()
 
     def render(self):
         self.os_window.fill(Color(30,30,30)) # Erases window
-        pygame.draw.rect(self.os_window, Color(255,0,0), self.rect) # Draw player
+        pygame.draw.polygon(self.os_window, Color(255,0,0), self.player.art) # Draw player
+        if self.debug:
+            pygame.draw.rect(self.os_window, Color(255,255,255), self.player.debug_rect, width=1) # Draw player
         self.draw_walls()
-        self.text_hud.render(self.os_window, Color(255,255,255))
+        if self.debug: self.text_hud.render(self.os_window, Color(255,255,255))
         pygame.display.update() # Final render
 
     def draw_vertical(self, color:Color, tile_size, x) -> None:
@@ -121,11 +183,12 @@ class Game:
             n += 1
         for tile in tiles:
             pygame.draw.rect(self.os_window, color, tile)
-        if use_hud: self.text_hud.msg += f"\nnum_tiles: {num_tiles}"
+        if use_hud:
+            if self.debug: self.text_hud.msg += f"\nnum_tiles: {num_tiles}"
 
     def draw_walls(self):
         # Draw East Wall
-        tile_size = 25
+        tile_size = self.tile_size
         window_width = self.os_window.get_size()[0]
         window_height = self.os_window.get_size()[1]
         self.draw_vertical(Color(255,200,0), tile_size, x=window_width - tile_size) # East wall
@@ -141,9 +204,7 @@ class Game:
 
 
     def player_update(self) -> None:
-        rx = random.uniform(-5,5)
-        ry = random.uniform(-5,5)
-        self.rect = Rect( (self.pos[0]-rx/2, self.pos[1]-ry/2), (50 + rx,80 + ry))
+        self.player.animate()
 
 
 if __name__ == '__main__':
