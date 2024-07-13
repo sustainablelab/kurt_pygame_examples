@@ -4,6 +4,7 @@
 
 [x] draw a rect
 [x] move the rect
+[x] add a HUD
 [ ] control size with a key
 [x] set up logging
 [x] draw walls
@@ -36,6 +37,29 @@ def shutdown(filename:str):
     pygame.font.quit()
     pygame.quit()
 
+class Text:
+    def __init__(self) -> None:
+        self.font = pygame.font.SysFont("RobotoMono", 50)
+        self.pos = (0,0)
+        self.msg = ""
+
+    def render(self, surf:pygame.Surface, color:Color) -> None:
+        ### pygame.font.Font.get_linesize()
+        line_space = self.font.get_linesize()
+        lines = self.msg.split("\n")
+        for i,line in enumerate(lines):
+            ### render(text, antialias, color, background=None) -> Surface
+            text_surf = self.font.render(line, True, color)
+            ### blit(source, dest, area=None, special_flags=0) -> Rect
+            surf.blit(text_surf, (self.pos[0],self.pos[1] + i*line_space))
+
+class TextHud(Text):
+    def __init__(self, game) -> None:
+        super().__init__()
+        self.game = game
+        self.msg += f"FPS: {self.game.clock.get_fps():0.0f}"
+        self.msg += f"\nWindow: {self.game.os_window.get_size()}"
+
 class Game:
     def __init__(self):
         pygame.init()
@@ -63,6 +87,7 @@ class Game:
 
 
     def game_loop(self):
+        self.text_hud = TextHud(self)
         self.player_update()
         self.handle_events()
         self.render()
@@ -72,26 +97,41 @@ class Game:
         self.os_window.fill(Color(30,30,30)) # Erases window
         pygame.draw.rect(self.os_window, Color(255,0,0), self.rect) # Draw player
         self.draw_walls()
+        self.text_hud.render(self.os_window, Color(255,255,255))
         pygame.display.update() # Final render
 
-    def draw_border(self, tile_size, x):
+    def draw_vertical(self, color:Color, tile_size, x) -> None:
         n = 0
         tiles = []
-        window_width = self.os_window.get_size()[0]
         window_height = self.os_window.get_size()[1]
         num_tiles = math.ceil(window_height/tile_size)
         while n < num_tiles:
-            tiles.append(Rect((x,tile_size*n), (tile_size,tile_size)))
+            tiles.append( Rect((x,tile_size*n), (tile_size,tile_size)))
             n += 1
         for tile in tiles:
-            pygame.draw.rect(self.os_window, Color(0,100,255), tile)
+            pygame.draw.rect(self.os_window, color, tile)
+
+    def draw_horizontal(self, color:Color, tile_size, y, use_hud:bool=False) -> None:
+        n = 0
+        tiles = []
+        window_width = self.os_window.get_size()[0]
+        num_tiles = math.ceil(window_width/tile_size)
+        while n < num_tiles:
+            tiles.append( Rect((tile_size*n, y), (tile_size,tile_size)))
+            n += 1
+        for tile in tiles:
+            pygame.draw.rect(self.os_window, color, tile)
+        if use_hud: self.text_hud.msg += f"\nnum_tiles: {num_tiles}"
 
     def draw_walls(self):
         # Draw East Wall
         tile_size = 25
         window_width = self.os_window.get_size()[0]
-        self.draw_border(tile_size, x=window_width - tile_size) # East wall
-        self.draw_border(tile_size, x=0) # West wall
+        window_height = self.os_window.get_size()[1]
+        self.draw_vertical(Color(255,200,0), tile_size, x=window_width - tile_size) # East wall
+        self.draw_vertical(Color(0,200,0),tile_size, x=0) # West wall
+        self.draw_horizontal(Color(0,200,200),tile_size, y=window_height - tile_size) # South wall
+        self.draw_horizontal(Color(255,0,200),tile_size, y=0, use_hud=True) # North wall
 
     def handle_events(self):
         for event in pygame.event.get():
