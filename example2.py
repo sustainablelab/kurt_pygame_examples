@@ -13,6 +13,7 @@
 [x] make a TileMap class: move wall code to TileMap
 [x] Update Player and TileMap to use game coordinates instead of pixel coordinates
 [x] draw TileMap as boxes during debug
+[x] save TileMap to file as JSON -- required replacing Rect and Color with tuples.
 """
 
 from pathlib import Path
@@ -23,6 +24,7 @@ from pygame import Color, Rect
 import random
 import math
 import logging
+import json
 
 def setup_logging(loglevel:str = "DEBUG") -> logging.Logger:
     logger = logging.getLogger()
@@ -141,7 +143,10 @@ class TileMap:
                 topleft = (x,tile_size*n)               # Position in pixel coordinates
                 pos = self.game.xfm.pg(topleft)         # Position in game coordinates
                 name = f"({pos[0]},{pos[1]})"           # Name tiles by their position
-                self.tiles[name] = {'rect':Rect(topleft,size), 'color':color}
+                # self.tiles[name] = {'rect':Rect(topleft,size), 'color':color}
+                # self.tiles[name] = {'rect':{'topleft':topleft,'size':size}, 'color':color}
+                self.tiles[name] = {'rect':{'topleft':topleft,'size':size},
+                                    'color':(color.r,color.g,color.b)}
                 n += 1
         def make_wall_horizontal(color, tile_size, y, num_tiles):
             """Make a horizontal wall at 'y', starting at x=0 and extending right 'num_tiles'."""
@@ -151,7 +156,8 @@ class TileMap:
                 topleft = (tile_size*n,y)               # Position in pixel coordinates
                 pos = self.game.xfm.pg(topleft)         # Position in game coordinates
                 name = f"({pos[0]},{pos[1]})"           # Name tiles by their position
-                self.tiles[name] = {'rect':Rect(topleft,size), 'color':color}
+                self.tiles[name] = {'rect':{'topleft':topleft,'size':size},
+                                    'color':(color.r,color.g,color.b)}
                 n += 1
         window_width, window_height = self.game.os_window.get_size()
         tile_size = self.game.tile_size
@@ -198,8 +204,11 @@ class TileMap:
 
     def render(self, surf:pygame.Surface) -> None:
         for name in self.tiles:
-            color = self.tiles[name]['color']
-            rect = self.tiles[name]['rect']
+            color = Color(self.tiles[name]['color'])
+            # rect = self.tiles[name]['rect']
+            topleft = self.tiles[name]['rect']['topleft']
+            size = self.tiles[name]['rect']['size']
+            rect = Rect(topleft,size)
             width = int(self.game.tile_size/10) if self.game.debug else 0
             pygame.draw.rect(surf, color, rect, width)
 
@@ -217,6 +226,7 @@ class Game:
     def __init__(self):
         pygame.init()
         pygame.font.init()
+        self.save_file = "level.json"  # To pretty print "level.json": $ python -m json.tool level.json
         self.os_window = pygame.display.set_mode((16*50,9*50), flags=pygame.RESIZABLE)
         pygame.display.set_caption("Collisions")
         self.clock = pygame.time.Clock()
@@ -231,6 +241,7 @@ class Game:
         while True: self.game_loop()
 
     def KEYDOWN(self, event):
+        kmod = pygame.key.get_mods()
         match event.key:
             case pygame.K_q: sys.exit()
             case pygame.K_w:
@@ -238,7 +249,12 @@ class Game:
             case pygame.K_a:
                 self.player.pos[0] -= 1
             case pygame.K_s:
-                self.player.pos[1] += 1
+                if (kmod & pygame.KMOD_CTRL):
+                    logger.debug(f"Saved tile map to \"{self.save_file}\"")
+                    with open(self.save_file, 'w') as fp:
+                        json.dump(self.tile_map.tiles, fp)
+                else:
+                    self.player.pos[1] += 1
             case pygame.K_d:
                 self.player.pos[0] += 1
             case pygame.K_F2:
