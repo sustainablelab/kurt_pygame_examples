@@ -8,7 +8,7 @@
 [ ] control size with a key
 [x] set up logging
 [x] draw walls
-[ ] collide with the walls
+[x] collide with the walls
 [x] make a Player class: track position in a debug rect, but draw as a wiggling polygon rect
 [x] make a TileMap class: move wall code to TileMap
 [x] Update Player and TileMap to use game coordinates instead of pixel coordinates
@@ -124,6 +124,39 @@ class Player:
             self.art[3][0] += random.uniform(-w,w)
             self.art[3][1] += random.uniform(-w,w)
 
+    def is_collision(self, pos:tuple) -> bool:
+        """Check if player collides with TileMap.
+
+        Check for collisions at all four tiles that make up the player.
+        """
+        collision = False
+        tiles = [(pos[0],   pos[1]),   # topleft
+                 (pos[0]+1, pos[1]),   # topright
+                 (pos[0],   pos[1]+1), # bottomleft
+                 (pos[0]+1, pos[1]+1)] # bottomright
+        for tile in tiles:
+            name = f"({tile[0]},{tile[1]})"
+            if name in self.game.tile_map.tiles:
+                collision = True
+                break
+        return collision
+
+    def move_up(self) -> None:
+        self.pos[1] -= 1
+        if self.is_collision(self.pos): self.pos[1] += 1
+
+    def move_left(self) -> None:
+        self.pos[0] -= 1
+        if self.is_collision(self.pos): self.pos[0] += 1
+
+    def move_down(self) -> None:
+        self.pos[1] += 1
+        if self.is_collision(self.pos): self.pos[1] -= 1
+
+    def move_right(self) -> None:
+        self.pos[0] += 1
+        if self.is_collision(self.pos): self.pos[0] -= 1
+
 class TileMap:
     def __init__(self, game):
         self.game = game
@@ -132,7 +165,14 @@ class TileMap:
     def make_tiles(self) -> None:
         """Create a dict of tiles in self.tiles.
 
-        Each tile is a dict: {'rect':Rect, 'color':Color}.
+        Each tile is a dict:
+            {"(0,0)":                   # tile "key" is its position as a string
+                {"rect":                # value is another dict
+                    {"topleft": [0, 0],
+                     "size": [50, 50]},
+                     "color": [0, 200, 200]},
+            "(0,1)":
+                {...
         """
         self.tiles = {}
         def make_wall_vertical(color, tile_size, x, num_tiles):
@@ -167,7 +207,7 @@ class TileMap:
         make_wall_horizontal(Color(0,200,200),tile_size,y=top,   num_tiles=math.ceil(window_width/tile_size))
         make_wall_horizontal(Color(255,0,200),tile_size,y=bottom,num_tiles=math.ceil(window_width/tile_size))
 
-    def make_tiles_old(self) -> None:
+    def make_tiles_old(self) -> None: # Delete after Kurt sees this
         """Create a list of tiles in self.tiles.
 
         Each tile is a dict: {'rect':Rect, 'color':Color}.
@@ -198,7 +238,7 @@ class TileMap:
         make_wall_horizontal(Color(0,   200, 200), tile_size, y=top,    num_tiles=math.ceil(window_width/tile_size))
         make_wall_horizontal(Color(255, 0,   200), tile_size, y=bottom, num_tiles=math.ceil(window_width/tile_size))
 
-    def render_old(self, surf:pygame.Surface) -> None:
+    def render_old(self, surf:pygame.Surface) -> None: # Delete after Kurt sees this
         for tile in self.tiles:
             pygame.draw.rect(surf, tile['color'], tile['rect'])
 
@@ -244,21 +284,19 @@ class Game:
         kmod = pygame.key.get_mods()
         match event.key:
             case pygame.K_q: sys.exit()
-            case pygame.K_w:
-                self.player.pos[1] -= 1
-            case pygame.K_a:
-                self.player.pos[0] -= 1
+            case pygame.K_a: self.player.move_left()
+            case pygame.K_d: self.player.move_right()
+            case pygame.K_w: self.player.move_up()
             case pygame.K_s:
-                if (kmod & pygame.KMOD_CTRL):
-                    logger.debug(f"Saved tile map to \"{self.save_file}\"")
-                    with open(self.save_file, 'w') as fp:
-                        json.dump(self.tile_map.tiles, fp)
-                else:
-                    self.player.pos[1] += 1
-            case pygame.K_d:
-                self.player.pos[0] += 1
+                if (kmod & pygame.KMOD_CTRL): self.save()
+                else: self.player.move_down()
             case pygame.K_F2:
                 self.debug = not self.debug
+
+    def save(self) -> None:
+        logger.debug(f"Saved tile map to \"{self.save_file}\"")
+        with open(self.save_file, 'w') as fp:
+            json.dump(self.tile_map.tiles, fp)
 
     def game_loop(self):
         self.handle_events()
