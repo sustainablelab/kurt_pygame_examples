@@ -14,6 +14,7 @@
 [x] Update Player and TileMap to use game coordinates instead of pixel coordinates
 [x] draw TileMap as boxes during debug
 [x] save TileMap to file as JSON -- required replacing Rect and Color with tuples.
+[x] TileMap tracks whether a tile can collide
 """
 
 from pathlib import Path
@@ -137,8 +138,9 @@ class Player:
         for tile in tiles:
             name = f"({tile[0]},{tile[1]})"
             if name in self.game.tile_map.tiles:
-                collision = True
-                break
+                if self.game.tile_map.tiles[name]['collides']:
+                    collision = True
+                    break
         return collision
 
     def move_up(self) -> None:
@@ -162,6 +164,12 @@ class TileMap:
         self.game = game
         self.make_tiles()
 
+    def add_tile(self, name:str, topleft:tuple, size:tuple, color:Color, collides:bool) -> None:
+        """Add dict of serialized tile data to self.tiles."""
+        self.tiles[name] = {'rect':{'topleft':topleft,'size':size},
+                            'color':(color.r,color.g,color.b),
+                            'collides':collides}
+
     def make_tiles(self) -> None:
         """Create a dict of tiles in self.tiles.
 
@@ -175,7 +183,7 @@ class TileMap:
                 {...
         """
         self.tiles = {}
-        def make_wall_vertical(color, tile_size, x, num_tiles):
+        def make_wall_vertical(color, tile_size, x, num_tiles, collides):
             """Make a vertical wall at 'x', starting at y=0 and extending down 'num_tiles'."""
             size = (tile_size, tile_size)               # All tiles are the same size
             n = 0
@@ -183,12 +191,9 @@ class TileMap:
                 topleft = (x,tile_size*n)               # Position in pixel coordinates
                 pos = self.game.xfm.pg(topleft)         # Position in game coordinates
                 name = f"({pos[0]},{pos[1]})"           # Name tiles by their position
-                # self.tiles[name] = {'rect':Rect(topleft,size), 'color':color}
-                # self.tiles[name] = {'rect':{'topleft':topleft,'size':size}, 'color':color}
-                self.tiles[name] = {'rect':{'topleft':topleft,'size':size},
-                                    'color':(color.r,color.g,color.b)}
+                self.add_tile(name, topleft, size, color, collides)
                 n += 1
-        def make_wall_horizontal(color, tile_size, y, num_tiles):
+        def make_wall_horizontal(color, tile_size, y, num_tiles, collides):
             """Make a horizontal wall at 'y', starting at x=0 and extending right 'num_tiles'."""
             size = (tile_size, tile_size)               # All tiles are the same size
             n = 0
@@ -196,16 +201,15 @@ class TileMap:
                 topleft = (tile_size*n,y)               # Position in pixel coordinates
                 pos = self.game.xfm.pg(topleft)         # Position in game coordinates
                 name = f"({pos[0]},{pos[1]})"           # Name tiles by their position
-                self.tiles[name] = {'rect':{'topleft':topleft,'size':size},
-                                    'color':(color.r,color.g,color.b)}
+                self.add_tile(name, topleft, size, color, collides)
                 n += 1
         window_width, window_height = self.game.os_window.get_size()
         tile_size = self.game.tile_size
         left=0; top=0; right=window_width-tile_size; bottom = window_height-tile_size
-        make_wall_vertical(Color(255,200,0),  tile_size,x=left,  num_tiles=math.ceil(window_height/tile_size))
-        make_wall_vertical(Color(0,200,0),    tile_size,x=right, num_tiles=math.ceil(window_height/tile_size))
-        make_wall_horizontal(Color(0,200,200),tile_size,y=top,   num_tiles=math.ceil(window_width/tile_size))
-        make_wall_horizontal(Color(255,0,200),tile_size,y=bottom,num_tiles=math.ceil(window_width/tile_size))
+        make_wall_vertical(Color(255,200,0),  tile_size,x=left,  num_tiles=math.ceil(window_height/tile_size), collides=True)
+        make_wall_vertical(Color(0,200,0),    tile_size,x=right, num_tiles=math.ceil(window_height/tile_size), collides=True)
+        make_wall_horizontal(Color(0,200,200),tile_size,y=top,   num_tiles=math.ceil(window_width/tile_size),  collides=True)
+        make_wall_horizontal(Color(255,0,200),tile_size,y=bottom,num_tiles=math.ceil(window_width/tile_size),  collides=True)
 
     def make_tiles_old(self) -> None: # Delete after Kurt sees this
         """Create a list of tiles in self.tiles.
