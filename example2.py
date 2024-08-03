@@ -15,6 +15,9 @@
 [x] draw TileMap as boxes during debug
 [x] save TileMap to file as JSON -- required replacing Rect and Color with tuples.
 [x] TileMap tracks whether a tile can collide
+[x] create a "load level" menu
+[ ] load tilemap level from file (select file from "load level" menu)
+[ ] add "is_push" behavior to TileMap tiles
 """
 
 from pathlib import Path
@@ -26,6 +29,7 @@ import random
 import math
 import logging
 import json
+import os
 
 def setup_logging(loglevel:str = "DEBUG") -> logging.Logger:
     logger = logging.getLogger()
@@ -49,6 +53,20 @@ class Text:
         self.font = pygame.font.SysFont("RobotoMono", size)
         self.pos = (0,0)
         self.msg = ""
+
+    @property
+    def width(self) -> int:
+        """Return the width of the rendered text."""
+        return self.font.size(self.msg)[0]
+
+    @property
+    def linesize(self) -> int:
+        """Return the vertical distance fromm top of one line to top of next line."""
+        return self.font.get_linesize()
+
+    def center_x(self, rect:pygame.Rect) -> int:
+        """Return the x-value to horizontally center the text in the 'rect'."""
+        return int(rect.left + (rect.width-self.width)/2)
 
     def render(self, surf:pygame.Surface, color:Color) -> None:
         ### pygame.font.Font.get_linesize()
@@ -261,10 +279,24 @@ class Xfm:
         self.game = game
 
     def pg(self, p:tuple) -> tuple:
+        """Return pixel-space point 'p' in world-space coordinates."""
         return (round(p[0]/self.game.tile_size), round(p[1]/self.game.tile_size))
 
     def gp(self, p:tuple) -> tuple:
+        """Return world-space point 'p' in pixel-space coordinates."""
         return (p[0]*self.game.tile_size, p[1]*self.game.tile_size)
+
+class LevelMenu:
+    def __init__(self, game):
+        self.game = game
+        self.selected = 0
+    def move_up(self) -> None:
+        self.selected = max(0, self.selected-1)
+        # logger.debug(self.selected)
+    def move_down(self) -> None:
+        num_levels = len(self.game.level_names)
+        self.selected = min(num_levels-1, self.selected+1)
+        # logger.debug(self.selected)
 
 class Game:
     def __init__(self):
@@ -273,6 +305,7 @@ class Game:
         self.save_file = "level.json"  # To pretty print "level.json": $ python -m json.tool level.json
         self.os_window = pygame.display.set_mode((16*50,9*50), flags=pygame.RESIZABLE)
         pygame.display.set_caption("Collisions")
+        os.environ["PYGAME_BLEND_ALPHA_SDL2"] = "1"     # Use SDL2 alpha blending
         self.clock = pygame.time.Clock()
         self.dt = 0
         self.xfm = Xfm(self)
@@ -280,6 +313,8 @@ class Game:
         self.tile_map = TileMap(self)
         self.player = Player(self)
         self.debug = True
+        self.state = 'play' # 'play', 'choose level'
+        self.level_menu = LevelMenu(self)
 
     def run(self):
         while True: self.game_loop()
@@ -288,19 +323,51 @@ class Game:
         kmod = pygame.key.get_mods()
         match event.key:
             case pygame.K_q: sys.exit()
-            case pygame.K_a: self.player.move_left()
-            case pygame.K_d: self.player.move_right()
-            case pygame.K_w: self.player.move_up()
-            case pygame.K_s:
-                if (kmod & pygame.KMOD_CTRL): self.save()
-                else: self.player.move_down()
             case pygame.K_F2:
                 self.debug = not self.debug
+        match self.state:
+            case 'choose level':
+                match event.key:
+                    case pygame.K_UP:       self.level_menu.move_up()
+                    case pygame.K_DOWN:     self.level_menu.move_down()
+                    case pygame.K_RETURN:   self.load()
+            case _:
+                match event.key:
+                    case pygame.K_LEFT:     self.player.move_left()
+                    case pygame.K_RIGHT:    self.player.move_right()
+                    case pygame.K_UP:       self.player.move_up()
+                    case pygame.K_DOWN:     self.player.move_down()
+                    case pygame.K_a:        self.player.move_left()
+                    case pygame.K_d:        self.player.move_right()
+                    case pygame.K_w:        self.player.move_up()
+                    case pygame.K_s:
+                        if (kmod & pygame.KMOD_CTRL): self.save()
+                        else:               self.player.move_down()
+                    case pygame.K_l:
+                        if (kmod & pygame.KMOD_CTRL): self.open_load_menu()
 
     def save(self) -> None:
         logger.debug(f"Saved tile map to \"{self.save_file}\"")
         with open(self.save_file, 'w') as fp:
-            json.dump(self.tile_map.tiles, fp)
+            json.dump(self.tile_map.tiles, fp, sort_keys=False, indent=4)
+
+    def open_load_menu(self) -> None:
+        """Enter 'choose level' state. Create a list of levels in self.level_names."""
+        logger.debug("Load file")
+        self.state = 'choose level'
+
+        # Load a list of level names
+        levels_dir = Path("levels")
+        level_files = os.listdir(levels_dir)
+        self.level_names = []
+        for name in level_files:
+            if name.startswith("level") and name.endswith("json"):
+                self.level_names.append(name)
+
+    def load(self) -> None:
+        """Load the selected level."""
+        logger.debug(f"Load {self.level_names[self.level_menu.selected]}")
+        # LEFT OFF HERE: load the selected level into self.tile_map.tiles
 
     def game_loop(self):
         self.handle_events()
@@ -311,13 +378,51 @@ class Game:
         self.dt = self.clock.get_time()
 
     def render(self):
-        self.os_window.fill(Color(30,30,30)) # Erases window
-        pygame.draw.polygon(self.os_window, Color(255,0,0), self.player.art) # Draw player
-        if self.debug:
-            pygame.draw.rect(self.os_window, Color(255,255,255), self.player.debug_rect, width=1) # Draw player
+        # Erase window
+        self.os_window.fill(Color(30,30,30))
+
+        # Draw the player
+        pygame.draw.polygon(self.os_window, Color(255,0,0), self.player.art)
+
+        # Overlay a white outline showing player's collision box
+        if self.debug: pygame.draw.rect(self.os_window, Color(255,255,255), self.player.debug_rect, width=1)
+
+        # Draw the tile map
         self.tile_map.render(self.os_window)
+
+        # Draw other things depending on the game state
+        match self.state:
+            case 'choose level': self.render_level_menu()
+            case _: pass
+
+        # Overlay the debug HUD
         if self.debug: self.text_hud.render(self.os_window, Color(255,255,255))
-        pygame.display.update() # Final render
+
+        # Send final video frame to display
+        pygame.display.update()
+
+    def render_level_menu(self) -> None:
+        win_size = self.os_window.get_size()
+        # Grey out the game
+        grey_surf = pygame.Surface(win_size, flags=pygame.SRCALPHA)
+        grey_surf.fill(Color(255,255,255,100))
+        ### blit(source, dest, area=None, special_flags=0) -> Rect
+        self.os_window.blit(grey_surf, (0,0), special_flags=pygame.BLEND_ALPHA_SDL2)
+        # Center menu in OS window
+        menu_size = (300,400)
+        menu_rect = Rect(((win_size[0]-menu_size[0])/2,(win_size[1]-menu_size[1])/2), menu_size)
+        pygame.draw.rect(self.os_window, Color(30,30,30), menu_rect)
+        pygame.draw.rect(self.os_window, Color(255,255,255), menu_rect, width=5)
+        # Draw the level names: show which level is selected
+        selected   = {'size':40, 'color':Color(255,255,0)}; # Large yellow text
+        unselected = {'size':30, 'color':Color(255,255,255)}; # Normal white text
+        _text = Text(size=selected['size']) # Dummy Text instance to get _text.linesize for vertical spacing
+        for i,level in enumerate(self.level_names):
+            text_level = Text(size=selected['size']) if i==self.level_menu.selected else Text(size=unselected['size'])
+            text_level.msg = level.strip(".json")
+            text_level.pos = (text_level.center_x(menu_rect), menu_rect.top + (1+i*2)*_text.linesize)
+            color = selected['color'] if i==self.level_menu.selected else unselected['color']
+            text_level.render(self.os_window, color)
 
     def handle_events(self):
         for event in pygame.event.get():
